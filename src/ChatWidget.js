@@ -94,6 +94,7 @@ export default function ChatWidget() {
   const [input, setInput]                         = useState('');
   const [chargement, setChargement]               = useState(false);
   const [suggestionsUtilisees, setSuggestionsUtilisees] = useState(false);
+  const [history, setHistory] = useState([]);
   const finMessages = useRef(null);
 
   useEffect(() => {
@@ -108,12 +109,13 @@ export default function ChatWidget() {
     setChargement(true);
     setSuggestionsUtilisees(true);
     try {
-      const rep  = await fetch(API_URL, {
+      const rep = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({ message: msg, history: history }),
       });
       const data = await rep.json();
+      setHistory(prev => [...prev, { user: msg, bot: data.answer }]);
       setMessages(prev => [...prev, { role: 'bot', texte: data.answer }]);
     } catch {
       setMessages(prev => [...prev, {
@@ -132,6 +134,7 @@ export default function ChatWidget() {
       suggestions: true,
     }]);
     setSuggestionsUtilisees(false);
+    setHistory([]);
     setInput('');
   };
 
