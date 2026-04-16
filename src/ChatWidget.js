@@ -4,7 +4,10 @@ const API_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:8000/chat'
   : 'https://web-production-13bd2f.up.railway.app/chat';
 
-// Couleurs exactes du site LegalStation.ma
+const FEEDBACK_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:8000/feedback'
+  : 'https://web-production-13bd2f.up.railway.app/feedback';
+
 const COLORS = {
   primary:      '#2563eb',
   primaryDark:  '#1d4ed8',
@@ -26,7 +29,6 @@ const SUGGESTIONS = [
   "Dépôt de marque",
 ];
 
-// Composant pour afficher les réponses avec mise en forme
 function FormaterReponse({ texte }) {
   const lignes = texte.split('\n');
   return (
@@ -34,7 +36,6 @@ function FormaterReponse({ texte }) {
       {lignes.map((ligne, i) => {
         if (!ligne.trim()) return <br key={i} />;
 
-        // Titre gras **texte**
         if (ligne.startsWith('**') && ligne.endsWith('**')) {
           return (
             <p key={i} style={{ fontWeight: 600, margin: '6px 0 3px', color: COLORS.primary }}>
@@ -43,7 +44,6 @@ function FormaterReponse({ texte }) {
           );
         }
 
-        // Puce - ou •
         if (ligne.trim().startsWith('- ') || ligne.trim().startsWith('• ')) {
           const contenu = ligne.trim().replace(/^[-•]\s/, '');
           return (
@@ -54,7 +54,6 @@ function FormaterReponse({ texte }) {
           );
         }
 
-        // Numérotation 1. 2. 3.
         const num = ligne.trim().match(/^(\d+)\.\s(.+)/);
         if (num) {
           return (
@@ -90,15 +89,42 @@ export default function ChatWidget() {
     role: 'bot',
     texte: "Bonjour ! Je suis l'assistant LegalStation. Comment puis-je vous aider aujourd'hui ?",
     suggestions: true,
+    evaluation: null,
   }]);
-  const [input, setInput]                         = useState('');
-  const [chargement, setChargement]               = useState(false);
+  const [input, setInput]                               = useState('');
+  const [chargement, setChargement]                     = useState(false);
   const [suggestionsUtilisees, setSuggestionsUtilisees] = useState(false);
+  const [history, setHistory]                           = useState([]);
   const finMessages = useRef(null);
 
   useEffect(() => {
     finMessages.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, chargement]);
+
+  const evaluer = async (index, valeur, question, reponse) => {
+    // Mettre à jour l'état local immédiatement
+    setMessages(prev => prev.map((msg, i) =>
+      i === index ? { ...msg, evaluation: valeur } : msg
+    ));
+
+    // Si négatif → envoyer le feedback à l'API pour collecte
+    if (valeur === 'negatif') {
+      try {
+        await fetch(FEEDBACK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: question,
+            reponse: reponse,
+            evaluation: 'negatif',
+            date: new Date().toISOString()
+          }),
+        });
+      } catch (e) {
+        console.log('Feedback non envoyé', e);
+      }
+    }
+  };
 
   const envoyer = async (texte) => {
     const msg = (texte || input).trim();
@@ -108,17 +134,23 @@ export default function ChatWidget() {
     setChargement(true);
     setSuggestionsUtilisees(true);
     try {
-      const rep  = await fetch(API_URL, {
+      const rep = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({ message: msg, history: history }),
       });
       const data = await rep.json();
-      setMessages(prev => [...prev, { role: 'bot', texte: data.answer }]);
+      setHistory(prev => [...prev, { user: msg, bot: data.answer }]);
+      setMessages(prev => [...prev, {
+        role: 'bot',
+        texte: data.answer,
+        evaluation: null,
+      }]);
     } catch {
       setMessages(prev => [...prev, {
         role: 'bot',
         texte: "Désolé, une erreur est survenue. Vérifiez que le serveur est lancé.",
+        evaluation: null,
       }]);
     } finally {
       setChargement(false);
@@ -130,14 +162,15 @@ export default function ChatWidget() {
       role: 'bot',
       texte: "Bonjour ! Je suis l'assistant LegalStation. Comment puis-je vous aider aujourd'hui ?",
       suggestions: true,
+      evaluation: null,
     }]);
     setSuggestionsUtilisees(false);
+    setHistory([]);
     setInput('');
   };
 
   return (
     <>
-      {/* ── Fenêtre de chat ── */}
       {ouvert && (
         <div style={{
           position: 'fixed', bottom: '88px', right: '24px',
@@ -156,7 +189,6 @@ export default function ChatWidget() {
             padding: '13px 15px',
             display: 'flex', alignItems: 'center', gap: '10px',
           }}>
-            {/* Avatar */}
             <div style={{
               width: '36px', height: '36px', borderRadius: '50%',
               background: 'rgba(255,255,255,0.18)',
@@ -168,7 +200,6 @@ export default function ChatWidget() {
               </svg>
             </div>
 
-            {/* Titre + statut */}
             <div style={{ flex: 1 }}>
               <p style={{ margin: 0, color: '#fff', fontSize: '14px', fontWeight: 600 }}>
                 Assistant LegalStation
@@ -179,7 +210,6 @@ export default function ChatWidget() {
               </p>
             </div>
 
-            {/* Boutons header */}
             <button onClick={reinitialiser} title="Nouvelle conversation" style={{
               background: 'rgba(255,255,255,0.15)', border: 'none',
               color: '#fff', borderRadius: '6px', padding: '4px 8px',
@@ -199,6 +229,7 @@ export default function ChatWidget() {
           }}>
             {messages.map((msg, i) => (
               <div key={i}>
+                {/* Bulle de message */}
                 <div style={{
                   background: msg.role === 'user' ? COLORS.primary : COLORS.white,
                   color: msg.role === 'user' ? '#fff' : COLORS.text,
@@ -213,6 +244,68 @@ export default function ChatWidget() {
                     : <span style={{ fontSize: '13px', lineHeight: '1.5' }}>{msg.texte}</span>
                   }
                 </div>
+
+                {/* Boutons évaluation — sous les messages bot sauf le premier */}
+                {msg.role === 'bot' && i > 0 && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    marginTop: '5px', marginLeft: '4px'
+                  }}>
+                    {msg.evaluation === null ? (
+                      <>
+                        <span style={{ fontSize: '11px', color: COLORS.textMuted }}>
+                          Cette réponse vous a-t-elle aidé ?
+                        </span>
+                        <button
+                          onClick={() => evaluer(i, 'positif', messages[i-1]?.texte || '', msg.texte)}
+                          title="Réponse utile"
+                          style={{
+                            background: 'none',
+                            border: `1px solid ${COLORS.border}`,
+                            borderRadius: '20px', padding: '3px 9px',
+                            fontSize: '13px', cursor: 'pointer',
+                            transition: 'all 0.15s', lineHeight: 1,
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = '#dcfce7';
+                            e.currentTarget.style.borderColor = '#16a34a';
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = 'none';
+                            e.currentTarget.style.borderColor = COLORS.border;
+                          }}
+                        >👍</button>
+                        <button
+                          onClick={() => evaluer(i, 'negatif', messages[i-1]?.texte || '', msg.texte)}
+                          title="Réponse à améliorer"
+                          style={{
+                            background: 'none',
+                            border: `1px solid ${COLORS.border}`,
+                            borderRadius: '20px', padding: '3px 9px',
+                            fontSize: '13px', cursor: 'pointer',
+                            transition: 'all 0.15s', lineHeight: 1,
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = '#fee2e2';
+                            e.currentTarget.style.borderColor = '#dc2626';
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = 'none';
+                            e.currentTarget.style.borderColor = COLORS.border;
+                          }}
+                        >👎</button>
+                      </>
+                    ) : msg.evaluation === 'positif' ? (
+                      <span style={{ fontSize: '11px', color: '#16a34a', fontStyle: 'italic' }}>
+                        👍 Merci, nous sommes ravis de vous avoir aidé !
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '11px', color: '#dc2626', fontStyle: 'italic' }}>
+                        👎 Merci pour votre retour. Notre équipe va améliorer cette réponse.
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Suggestions rapides */}
                 {msg.suggestions && !suggestionsUtilisees && (
@@ -308,7 +401,7 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* ── Bouton flottant ── */}
+      {/* Bouton flottant */}
       <button onClick={() => setOuvert(!ouvert)} style={{
         position: 'fixed', bottom: '24px', right: '24px',
         width: '54px', height: '54px', borderRadius: '50%',
