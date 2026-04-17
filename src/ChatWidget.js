@@ -4,6 +4,10 @@ const API_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:8000/chat'
   : 'https://web-production-13bd2f.up.railway.app/chat';
 
+const STREAM_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:8000/chat/stream'
+  : 'https://web-production-13bd2f.up.railway.app/chat/stream';
+
 const FEEDBACK_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:8000/feedback'
   : 'https://web-production-13bd2f.up.railway.app/feedback';
@@ -126,32 +130,100 @@ export default function ChatWidget() {
     }
   };
 
-  const envoyer = async (texte) => {
+const envoyer = async (texte) => {
     const msg = (texte || input).trim();
     if (!msg || chargement) return;
+
     setMessages(prev => [...prev, { role: 'user', texte: msg }]);
     setInput('');
     setChargement(true);
     setSuggestionsUtilisees(true);
+
+    // Ajoute un message bot vide pour le streaming
+    setMessages(prev => [...prev, {
+      role: 'bot',
+      texte: '',
+      evaluation: null,
+      streaming: true
+    }]);
+
     try {
-      const rep = await fetch(API_URL, {
+      const rep = await fetch(STREAM_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, history: history }),
       });
-      const data = await rep.json();
-      setHistory(prev => [...prev, { user: msg, bot: data.answer }]);
-      setMessages(prev => [...prev, {
-        role: 'bot',
-        texte: data.answer,
-        evaluation: null,
-      }]);
+
+      const reader = rep.body.getReader();
+      const decoder = new TextDecoder();
+      let texteComplet = '';
+      let sources = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lignes = chunk.split('\n');
+
+        for (const ligne of lignes) {
+          if (ligne.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(ligne.slice(6));
+
+              if (data.error) {
+                texteComplet = "Désolé, une erreur est survenue.";
+                break;
+              }
+
+              if (!data.done) {
+                // Ajoute le token au message en cours
+                texteComplet += data.token;
+                setMessages(prev => {
+                  const newMessages = [...prev];
+                  newMessages[newMessages.length - 1] = {
+                    role: 'bot',
+                    texte: texteComplet,
+                    evaluation: null,
+                    streaming: true
+                  };
+                  return newMessages;
+                });
+              } else {
+                // Streaming terminé
+                sources = data.sources || [];
+                setMessages(prev => {
+                  const newMessages = [...prev];
+                  newMessages[newMessages.length - 1] = {
+                    role: 'bot',
+                    texte: texteComplet,
+                    evaluation: null,
+                    streaming: false
+                  };
+                  return newMessages;
+                });
+                setHistory(prev => [...prev, {
+                  user: msg,
+                  bot: texteComplet
+                }]);
+              }
+            } catch (e) {
+              // Ignore les lignes mal formées
+            }
+          }
+        }
+      }
     } catch {
-      setMessages(prev => [...prev, {
-        role: 'bot',
-        texte: "Désolé, une erreur est survenue. Vérifiez que le serveur est lancé.",
-        evaluation: null,
-      }]);
+      setMessages(prev => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = {
+          role: 'bot',
+          texte: "Désolé, une erreur est survenue. Vérifiez que le serveur est lancé.",
+          evaluation: null,
+          streaming: false
+        };
+        return newMessages;
+      });
     } finally {
       setChargement(false);
     }
@@ -229,7 +301,7 @@ export default function ChatWidget() {
           }}>
             {messages.map((msg, i) => (
               <div key={i}>
-                {/* Bulle de message */}
+                {/* Bulle de message — cachée si streaming et texte vide */}
                 <div style={{
                   background: msg.role === 'user' ? COLORS.primary : COLORS.white,
                   color: msg.role === 'user' ? '#fff' : COLORS.text,
@@ -238,6 +310,7 @@ export default function ChatWidget() {
                   maxWidth: '90%',
                   marginLeft: msg.role === 'user' ? 'auto' : '0',
                   border: msg.role === 'bot' ? `1px solid ${COLORS.border}` : 'none',
+                  display: msg.streaming && msg.texte === '' ? 'none' : 'block',
                 }}>
                   {msg.role === 'bot'
                     ? <FormaterReponse texte={msg.texte} />
@@ -246,7 +319,7 @@ export default function ChatWidget() {
                 </div>
 
                 {/* Boutons évaluation — sous les messages bot sauf le premier */}
-                {msg.role === 'bot' && i > 0 && (
+                {msg.role === 'bot' && i > 0 && !msg.streaming && (
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: '6px',
                     marginTop: '5px', marginLeft: '4px'
