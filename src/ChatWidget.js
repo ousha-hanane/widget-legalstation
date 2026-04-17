@@ -1,9 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-const API_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:8000/chat'
-  : 'https://web-production-13bd2f.up.railway.app/chat';
-
 const STREAM_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:8000/chat/stream'
   : 'https://web-production-13bd2f.up.railway.app/chat/stream';
@@ -94,6 +90,7 @@ export default function ChatWidget() {
     texte: "Bonjour ! Je suis l'assistant LegalStation. Comment puis-je vous aider aujourd'hui ?",
     suggestions: true,
     evaluation: null,
+    streaming: false,
   }]);
   const [input, setInput]                               = useState('');
   const [chargement, setChargement]                     = useState(false);
@@ -106,12 +103,10 @@ export default function ChatWidget() {
   }, [messages, chargement]);
 
   const evaluer = async (index, valeur, question, reponse) => {
-    // Mettre à jour l'état local immédiatement
     setMessages(prev => prev.map((msg, i) =>
       i === index ? { ...msg, evaluation: valeur } : msg
     ));
 
-    // Si négatif → envoyer le feedback à l'API pour collecte
     if (valeur === 'negatif') {
       try {
         await fetch(FEEDBACK_URL, {
@@ -130,21 +125,18 @@ export default function ChatWidget() {
     }
   };
 
-const envoyer = async (texte) => {
+  const envoyer = async (texte) => {
     const msg = (texte || input).trim();
     if (!msg || chargement) return;
 
-    setMessages(prev => [...prev, { role: 'user', texte: msg }]);
+    setMessages(prev => [...prev, { role: 'user', texte: msg, evaluation: null, streaming: false }]);
     setInput('');
     setChargement(true);
     setSuggestionsUtilisees(true);
 
-    // Ajoute un message bot vide pour le streaming
+    // Message bot vide — caché jusqu'au premier token
     setMessages(prev => [...prev, {
-      role: 'bot',
-      texte: '',
-      evaluation: null,
-      streaming: true
+      role: 'bot', texte: '', evaluation: null, streaming: true
     }]);
 
     try {
@@ -157,7 +149,6 @@ const envoyer = async (texte) => {
       const reader = rep.body.getReader();
       const decoder = new TextDecoder();
       let texteComplet = '';
-      let sources = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -173,39 +164,40 @@ const envoyer = async (texte) => {
 
               if (data.error) {
                 texteComplet = "Désolé, une erreur est survenue.";
+                const texteErreur = texteComplet;
+                setMessages(prev => {
+                  const newMessages = [...prev];
+                  newMessages[newMessages.length - 1] = {
+                    role: 'bot', texte: texteErreur,
+                    evaluation: null, streaming: false
+                  };
+                  return newMessages;
+                });
                 break;
               }
 
               if (!data.done) {
-                // Ajoute le token au message en cours
                 texteComplet += data.token;
+                const texteActuel = texteComplet;
                 setMessages(prev => {
                   const newMessages = [...prev];
                   newMessages[newMessages.length - 1] = {
-                    role: 'bot',
-                    texte: texteComplet,
-                    evaluation: null,
-                    streaming: true
+                    role: 'bot', texte: texteActuel,
+                    evaluation: null, streaming: true
                   };
                   return newMessages;
                 });
               } else {
-                // Streaming terminé
-                sources = data.sources || [];
+                const texteFinal = texteComplet;
                 setMessages(prev => {
                   const newMessages = [...prev];
                   newMessages[newMessages.length - 1] = {
-                    role: 'bot',
-                    texte: texteComplet,
-                    evaluation: null,
-                    streaming: false
+                    role: 'bot', texte: texteFinal,
+                    evaluation: null, streaming: false
                   };
                   return newMessages;
                 });
-                setHistory(prev => [...prev, {
-                  user: msg,
-                  bot: texteComplet
-                }]);
+                setHistory(prev => [...prev, { user: msg, bot: texteFinal }]);
               }
             } catch (e) {
               // Ignore les lignes mal formées
@@ -214,13 +206,12 @@ const envoyer = async (texte) => {
         }
       }
     } catch {
+      const texteErreur = "Désolé, une erreur est survenue. Vérifiez que le serveur est lancé.";
       setMessages(prev => {
         const newMessages = [...prev];
         newMessages[newMessages.length - 1] = {
-          role: 'bot',
-          texte: "Désolé, une erreur est survenue. Vérifiez que le serveur est lancé.",
-          evaluation: null,
-          streaming: false
+          role: 'bot', texte: texteErreur,
+          evaluation: null, streaming: false
         };
         return newMessages;
       });
@@ -235,6 +226,7 @@ const envoyer = async (texte) => {
       texte: "Bonjour ! Je suis l'assistant LegalStation. Comment puis-je vous aider aujourd'hui ?",
       suggestions: true,
       evaluation: null,
+      streaming: false,
     }]);
     setSuggestionsUtilisees(false);
     setHistory([]);
@@ -301,24 +293,26 @@ const envoyer = async (texte) => {
           }}>
             {messages.map((msg, i) => (
               <div key={i}>
-                {/* Bulle de message — cachée si streaming et texte vide */}
-                <div style={{
-                  background: msg.role === 'user' ? COLORS.primary : COLORS.white,
-                  color: msg.role === 'user' ? '#fff' : COLORS.text,
-                  borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                  padding: '10px 13px',
-                  maxWidth: '90%',
-                  marginLeft: msg.role === 'user' ? 'auto' : '0',
-                  border: msg.role === 'bot' ? `1px solid ${COLORS.border}` : 'none',
-                  display: msg.streaming && msg.texte === '' ? 'none' : 'block',
-                }}>
-                  {msg.role === 'bot'
-                    ? <FormaterReponse texte={msg.texte} />
-                    : <span style={{ fontSize: '13px', lineHeight: '1.5' }}>{msg.texte}</span>
-                  }
-                </div>
 
-                {/* Boutons évaluation — sous les messages bot sauf le premier */}
+                {/* Bulle — cachée si streaming et texte vide */}
+                {!(msg.streaming && msg.texte === '') && (
+                  <div style={{
+                    background: msg.role === 'user' ? COLORS.primary : COLORS.white,
+                    color: msg.role === 'user' ? '#fff' : COLORS.text,
+                    borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                    padding: '10px 13px',
+                    maxWidth: '90%',
+                    marginLeft: msg.role === 'user' ? 'auto' : '0',
+                    border: msg.role === 'bot' ? `1px solid ${COLORS.border}` : 'none',
+                  }}>
+                    {msg.role === 'bot'
+                      ? <FormaterReponse texte={msg.texte} />
+                      : <span style={{ fontSize: '13px', lineHeight: '1.5' }}>{msg.texte}</span>
+                    }
+                  </div>
+                )}
+
+                {/* Boutons évaluation — uniquement quand streaming terminé */}
                 {msg.role === 'bot' && i > 0 && !msg.streaming && (
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: '6px',
@@ -330,7 +324,7 @@ const envoyer = async (texte) => {
                           Cette réponse vous a-t-elle aidé ?
                         </span>
                         <button
-                          onClick={() => evaluer(i, 'positif', messages[i-1]?.texte || '', msg.texte)}
+                          onClick={() => evaluer(i, 'positif', messages[i - 1]?.texte || '', msg.texte)}
                           title="Réponse utile"
                           style={{
                             background: 'none',
@@ -349,7 +343,7 @@ const envoyer = async (texte) => {
                           }}
                         >👍</button>
                         <button
-                          onClick={() => evaluer(i, 'negatif', messages[i-1]?.texte || '', msg.texte)}
+                          onClick={() => evaluer(i, 'negatif', messages[i - 1]?.texte || '', msg.texte)}
                           title="Réponse à améliorer"
                           style={{
                             background: 'none',
@@ -411,8 +405,8 @@ const envoyer = async (texte) => {
               </div>
             ))}
 
-            {/* Animation chargement */}
-            {chargement && (
+            {/* Animation chargement — uniquement si texte encore vide */}
+            {chargement && messages[messages.length - 1]?.texte === '' && (
               <div style={{
                 background: COLORS.white,
                 border: `1px solid ${COLORS.border}`,
@@ -421,11 +415,11 @@ const envoyer = async (texte) => {
                 display: 'flex', gap: '4px', alignItems: 'center',
                 alignSelf: 'flex-start',
               }}>
-                {[0, 1, 2].map(i => (
-                  <div key={i} style={{
+                {[0, 1, 2].map(k => (
+                  <div key={k} style={{
                     width: '6px', height: '6px', borderRadius: '50%',
                     background: COLORS.primary,
-                    animation: `pulse 1s ease-in-out ${i * 0.2}s infinite`,
+                    animation: `pulse 1s ease-in-out ${k * 0.2}s infinite`,
                   }}/>
                 ))}
               </div>
