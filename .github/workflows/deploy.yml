@@ -1,0 +1,29 @@
+name: legalstation_chatboot
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  legalstation-dev-app-deploy:
+    runs-on: legalstation-chatboot-hosted
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Ensure Node.js 14 is in PATH
+      run: |
+        export PATH="/usr/bin:$PATH"
+        echo "Using Node.js version:"
+        node -v
+    - name: Stop and remove existing container
+      run: docker container rm -f legalstation_chatboot || true
+
+    - name: Remove existing image
+      run: docker rmi legalstation_chatboot || true
+
+    - name: Build Docker image
+      run: docker build --no-cache -t legalstation_chatboot .
+
+    - name: Run Docker container
+      run: docker run -d -p 6003:80 --name legalstation_chatboot legalstation_chatboot:latest
