@@ -9,13 +9,24 @@ const FEEDBACK_URL = window.location.hostname === 'localhost'
   : 'https://web-production-13bd2f.up.railway.app/feedback';
 
 // Ordre des champs du formulaire (correspond à QUESTIONS_ENTREPRISE dans main.py)
-const QUESTIONS_CHAMPS = [
+const QUESTIONS_CHAMPS_CREATION = [
   'typeBeneficiaire', 'nomBeneficiaire', 'prenomBeneficiaire',
   'nationaliteBeneficiaire', 'cinBeneficiaire', 'dateBirthBeneficiaire',
   'gsmBeneficiaire', 'emailBeneficiaire', 'villeBeneficiaire',
-  'adresseBeneficiaire', 'denominationBeneficiaire', 'denomination2',
-  'denomination3', 'formeJuridique', 'domaineActivite', 'dureeSociete',
-  'villeDomiciliation', 'capitalSocial', 'apport1', 'gerant', 'pack', 'password'
+  'adresseBeneficiaire', 'denominationBeneficiaire', 'sigle1', 'denomination2',
+  'denomination3', 'formeJuridique', 'domaineActivite', 'villeSociete',
+  'capitalSocial', 'apport1', 'nombreAssocies', 'objetSocial', 'dureeSociete',
+  'villeDomiciliation', 'gerant', 'pack', 'password'
+];
+
+const QUESTIONS_CHAMPS_DOMICILIATION = [
+  'typeBeneficiaire', 'nomBeneficiaire', 'prenomBeneficiaire',
+  'nationaliteBeneficiaire', 'cinBeneficiaire', 'dateBirthBeneficiaire',
+  'gsmBeneficiaire', 'emailBeneficiaire', 'villeBeneficiaire',
+  'adresseBeneficiaire', 'denominationDomiciliation', 'iceDomiciliation',
+  'patenteDomiciliation', 'ifNumberDomiciliation', 'rcDomiciliation',
+  'cnssDomiciliation', 'villeTribunalDomiciliation', 'dureeDomiciliation',
+  'passwordDomiciliation'
 ];
 
 const COLORS = {
@@ -277,7 +288,8 @@ export default function ChatWidget() {
   const [suggestionsUtilisees, setSuggestionsUtilisees] = useState(false);
   const [history, setHistory]                           = useState([]);
   const [formulaire, setFormulaire]                     = useState({});
-  const [afficherCalendrier, setAfficherCalendrier]     = useState(false);
+  const [afficherCalendrier, setAfficherCalendrier] = useState(false);
+  const [estMotDePasse, setEstMotDePasse] = useState(false);
   const finMessages = useRef(null);
 
   useEffect(() => {
@@ -310,11 +322,17 @@ export default function ChatWidget() {
 
     setAfficherCalendrier(false);
     setMessages(prev => [...prev, {
-      role: 'user', texte: msg, evaluation: null, streaming: false
+      role: 'user', 
+      texte: msg, 
+      estMotDePasse: etaitMotDePasse,
+      evaluation: null, 
+      streaming: false
     }]);
     setInput('');
     setChargement(true);
     setSuggestionsUtilisees(true);
+    const etaitMotDePasse = estMotDePasse;
+    setEstMotDePasse(false);
 
     try {
       const rep = await fetch(API_URL, {
@@ -336,16 +354,18 @@ export default function ChatWidget() {
 
       if (data.formulaire !== undefined) {
         setFormulaire(data.formulaire);
-
-        // Détecter si la question ACTUELLE posée est la date de naissance
-        // etape_index pointe vers la prochaine question à poser
-        // donc la question actuelle = etape_index - 1
         const prochainIndex = data.formulaire?.etape_index;
+        const service = data.formulaire?.service || 'creation_entreprise';
+        const listeChamps = service === 'domiciliation'
+          ? QUESTIONS_CHAMPS_DOMICILIATION
+          : QUESTIONS_CHAMPS_CREATION;
         const champActuel = prochainIndex !== undefined && prochainIndex > 0
-          ? (QUESTIONS_CHAMPS[prochainIndex - 1] || '')
+          ? (listeChamps[prochainIndex - 1] || '')
           : '';
         setAfficherCalendrier(champActuel === 'dateBirthBeneficiaire');
-            
+        setEstMotDePasse(
+          champActuel === 'password' || champActuel === 'passwordDomiciliation'
+        );
 }
     } catch {
       setMessages(prev => [...prev, {
@@ -369,12 +389,15 @@ export default function ChatWidget() {
     setInput('');
     setFormulaire({});
     setAfficherCalendrier(false);
+    setEstMotDePasse(false);
   };
 
-  const nbQuestions = 22;
+  const nbQuestions = formulaire?.service === 'domiciliation'
+    ? QUESTIONS_CHAMPS_DOMICILIATION.length
+    : QUESTIONS_CHAMPS_CREATION.length;
   const etapeActuelle = formulaire?.etape_index || 0;
   const pourcentage = Math.min(Math.round((etapeActuelle / nbQuestions) * 100), 100);
-
+    
   return (
     <>
       {ouvert && (
@@ -433,7 +456,7 @@ export default function ChatWidget() {
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                 <span style={{ fontSize: '11px', color: COLORS.primary, fontWeight: 500 }}>
-                  🏢 Création d'entreprise
+                  {formulaire.service === 'domiciliation' ? '🏠 Domiciliation' : '🏢 Création d\'entreprise'}
                 </span>
                 <span style={{ fontSize: '11px', color: COLORS.primary }}>
                   {etapeActuelle}/{nbQuestions} — {pourcentage}%
@@ -468,7 +491,9 @@ export default function ChatWidget() {
                 }}>
                   {msg.role === 'bot'
                     ? <FormaterReponse texte={msg.texte} />
-                    : <span style={{ fontSize: '13px', lineHeight: '1.5' }}>{msg.texte}</span>
+                    : <span style={{ fontSize: '13px', lineHeight: '1.5' }}>
+                        {msg.estMotDePasse ? '••••••••' : msg.texte}
+                      </span>
                   }
                 </div>
 
@@ -572,6 +597,7 @@ export default function ChatWidget() {
             display: 'flex', gap: '8px', background: COLORS.white, alignItems: 'center',
           }}>
             <input
+              type={estMotDePasse ? 'password' : 'text'}
               style={{
                 flex: 1, background: COLORS.msgBg,
                 border: `1px solid ${COLORS.border}`,
