@@ -2,11 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 
 const API_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:8000/chat'
-  : 'https://web-production-13bd2f.up.railway.app/chat';
+  : 'https://chatbotapi.legalstation.ma/chat';
 
 const FEEDBACK_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:8000/feedback'
-  : 'https://web-production-13bd2f.up.railway.app/feedback';
+  : 'https://chatbotapi.legalstation.ma/feedback';
 
 // Ordre des champs du formulaire (correspond à QUESTIONS_ENTREPRISE dans main.py)
 const QUESTIONS_CHAMPS_CREATION = [
