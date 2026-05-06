@@ -217,7 +217,7 @@ function SelecteurDate({ onSelect }) {
 // ════════════════════════════════════════
 
 function FormaterReponse({ texte }) {
-  const lignes = texte.split('\n');
+  const lignes = (texte || '').split('\n');
   return (
     <div style={{ lineHeight: '1.6', fontSize: '13px', color: COLORS.text }}>
       {lignes.map((ligne, i) => {
@@ -347,7 +347,7 @@ export default function ChatWidget() {
       const data = await rep.json();
 
       setMessages(prev => [...prev, {
-        role: 'bot', texte: data.answer,
+        role: 'bot', texte: data.answer || "Désolé, une erreur est survenue.",
         evaluation: null, streaming: false,
       }]);
       setHistory(prev => [...prev, { user: msg, bot: data.answer }]);
